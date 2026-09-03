@@ -55,6 +55,27 @@ function is_gcov_missing_or_wrong_version() {
   fi
 }
 
+# Keeps Bazel's built-in C++ coverage collector enabled for the calling suite.
+#
+# --@bazel_tools//tools/test:incompatible_disable_builtin_cc_coverage defaults to
+# on, which reduces @bazel_tools//tools/test:collect_cc_coverage to a no-op. The
+# suites that assert on C++ coverage are testing precisely that collector, so
+# they pin the flag off rather than lose their subject.
+#
+# They reach it two different ways. rules_shell, rules_python and rules_java
+# still default their _collect_cc_coverage attribute to the built-in collector.
+# rules_cc moved to its own collector in 0.2.19, but these suites resolve
+# rules_cc from src/test/tools/bzlmod/MODULE.bazel.lock, which still pins
+# 0.2.18, so cc_test reaches the built-in one too.
+#
+# Suites that do not assert on C++ coverage must not call this: they are what
+# covers the new default.
+# See https://github.com/bazelbuild/bazel/issues/5508
+function use_builtin_cc_coverage() {
+  add_to_bazelrc \
+    "build --@bazel_tools//tools/test:incompatible_disable_builtin_cc_coverage=false"
+}
+
 # Asserts if the given expected coverage result is included in the given output
 # file.
 #

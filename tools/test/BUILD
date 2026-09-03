@@ -137,6 +137,9 @@ filegroup(
     srcs = [
         "BUILD.tools",
         "collect_cc_coverage.sh",
+        "collect_cc_coverage_noop.bat",
+        "collect_cc_coverage_noop.sh",
+        "collect_coverage.bat",
         "collect_coverage.sh",
         "default_test_toolchain.bzl",
         "extensions.bzl",

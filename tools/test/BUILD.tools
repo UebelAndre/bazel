@@ -49,6 +49,53 @@ config_setting(
     visibility = ["//visibility:private"],
 )
 
+# Whether to disable Bazel's built-in C++ coverage collection.
+#
+# collect_cc_coverage.sh drives gcov and llvm-profdata from bash. Disabling it
+# turns that script into a no-op on every platform, which in turn lets the
+# coverage wrapper on Windows be a batch file instead of an sh_binary, so that
+# neither `bazel test` nor `bazel coverage` requires an MSYS2 bash or a
+# registered shell toolchain there.
+#
+# This affects every rule that still points its _collect_cc_coverage attribute
+# at the built-in collector, which as of writing means sh_test, py_test and
+# java_test: those lose C++ coverage until their rulesets ship a collector of
+# their own. rules_cc did so in 0.2.19, so cc_test is unaffected there, but is
+# affected on earlier versions and under
+# --@rules_cc//cc/settings:incompatible_use_native_collect_cc_coverage.
+# Set this to false to keep using the built-in collector.
+# See https://github.com/bazelbuild/bazel/issues/5508
+bool_flag(
+    name = "incompatible_disable_builtin_cc_coverage",
+    build_setting_default = True,
+    # Every target that selects on this flag is reached through an attribute
+    # carrying an ExecutionTransitionFactory, so the flag has to survive the exec
+    # transition. Without "universal" a command-line --...=false is discarded
+    # there once --incompatible_exclude_starlark_flags_from_exec_config flips,
+    # and the selects below silently fall back to the no-op.
+    scope = "universal",
+    visibility = ["//visibility:private"],
+)
+
+config_setting(
+    name = "builtin_cc_coverage_disabled",
+    flag_values = {
+        ":incompatible_disable_builtin_cc_coverage": "true",
+    },
+    visibility = ["//visibility:private"],
+)
+
+# Strictly more specialized than :builtin_cc_coverage_disabled, so it wins in
+# the selects below whenever both match.
+config_setting(
+    name = "builtin_cc_coverage_disabled_on_windows",
+    constraint_values = ["@platforms//os:windows"],
+    flag_values = {
+        ":incompatible_disable_builtin_cc_coverage": "true",
+    },
+    visibility = ["//visibility:private"],
+)
+
 # A toolchain that forces the execution platform to satisfy all constraints
 # specified by the target platform.
 toolchain(
@@ -89,19 +136,53 @@ filegroup(
     srcs = ["generate-xml.sh"],
 )
 
-sh_binary(
+alias(
     name = "collect_coverage",
+    # Once built-in C++ coverage collection is disabled nothing in the coverage
+    # path needs bash on Windows, so the wrapper there becomes a batch file.
+    # Selecting a filegroup rather than an sh_binary also keeps the shell
+    # toolchain out of the dependency graph: every test rule depends on this
+    # target through its implicit $collect_coverage_script attribute, so an
+    # sh_binary here fails analysis on Windows hosts without a registered shell
+    # toolchain, even for a plain `bazel test` that never collects coverage.
+    # See https://github.com/bazelbuild/bazel/issues/5508
+    actual = select({
+        ":builtin_cc_coverage_disabled_on_windows": ":collect_coverage_bat",
+        "//conditions:default": ":collect_coverage_sh",
+    }),
+)
+
+sh_binary(
+    name = "collect_coverage_sh",
     srcs = ["collect_coverage.sh"],
+)
+
+# A single-file filegroup provides an executable FilesToRunProvider, just like
+# :test_wrapper and :xml_writer below, so consumers of :collect_coverage see the
+# same shape on Windows as the sh_binary gives them elsewhere.
+filegroup(
+    name = "collect_coverage_bat",
+    srcs = ["collect_coverage.bat"],
 )
 
 filegroup(
     name = "collect_cc_coverage",
-    srcs = ["collect_cc_coverage.sh"],
+    # When built-in C++ coverage collection is disabled this becomes a no-op
+    # written in the platform's own scripting language, since the wrapper that
+    # invokes it is a batch file on Windows and a shell script elsewhere.
+    srcs = select({
+        ":builtin_cc_coverage_disabled_on_windows": ["collect_cc_coverage_noop.bat"],
+        ":builtin_cc_coverage_disabled": ["collect_cc_coverage_noop.sh"],
+        "//conditions:default": ["collect_cc_coverage.sh"],
+    }),
 )
 
 filegroup(
     name = "coverage_support",
-    srcs = ["collect_coverage.sh"],
+    srcs = select({
+        ":builtin_cc_coverage_disabled_on_windows": ["collect_coverage.bat"],
+        "//conditions:default": ["collect_coverage.sh"],
+    }),
 )
 
 alias(

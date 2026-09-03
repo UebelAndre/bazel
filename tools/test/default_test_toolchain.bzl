@@ -19,6 +19,15 @@ visibility("private")
 bool_flag = rule(
     implementation = lambda _: None,
     build_setting = config.bool(flag = True),
+    attrs = {
+        "scope": attr.string(
+            doc = (
+                "Scope of the flag, as defined by Scope.ScopeType. Unset means " +
+                "ScopeType.DEFAULT: the option parser only honors this attribute when a " +
+                "BUILD file specifies it explicitly, so a default here would be ignored."
+            ),
+        ),
+    },
     doc = "A bool-typed build setting that can be set on the command line",
 )
 

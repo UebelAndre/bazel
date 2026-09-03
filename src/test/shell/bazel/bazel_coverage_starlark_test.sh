@@ -36,6 +36,16 @@ if [[ "${COVERAGE_GENERATOR_WORKSPACE_FILE}" != "released" ]]; then
   add_to_bazelrc "build --override_repository=bazel_tools+remote_coverage_tools_extension+remote_coverage_tools=${COVERAGE_GENERATOR_DIR}"
 fi
 
+# Any remaining arguments are applied to every Bazel invocation below, so that
+# the same suite can be run against more than one coverage configuration. The
+# rules defined here declare no _collect_cc_coverage attribute, so unlike the
+# other coverage suites this one runs unchanged whichever way
+# --@bazel_tools//tools/test:incompatible_disable_builtin_cc_coverage is set,
+# and is what covers both coverage runners on Windows.
+for flag in "$@"; do
+  add_to_bazelrc "build $flag"
+done
+
 if is_windows; then
   starlark_is_windows=True
 else

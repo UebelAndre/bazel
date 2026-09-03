@@ -93,20 +93,38 @@ code coverage with Bazel.
 
 ### C++
 
-#### Linux
+C++ coverage collection is provided by
+[`rules_cc`](https://github.com/bazelbuild/rules_cc), which ships its own
+collector and uses it by default. See its documentation for the steps needed to
+enable coverage support in C++.
 
-C++ coverage should work out-of-the-box with the default configuration.
+Bazel's built-in collector, `@bazel_tools//tools/test:collect_cc_coverage`, is
+legacy and disabled by default:
+`--@bazel_tools//tools/test:incompatible_disable_builtin_cc_coverage` reduces it
+to a no-op on every platform, which is what allows the coverage runner on
+Windows to be a batch file rather than an `sh_binary`, so that `bazel test` no
+longer needs an MSYS2 bash or a registered shell toolchain there. Pass
+`--@bazel_tools//tools/test:incompatible_disable_builtin_cc_coverage=false` to
+restore it; see [#5508](https://github.com/bazelbuild/bazel/issues/5508).
 
-#### macOS
+Any test rule can supply its own collector through the private
+`_collect_cc_coverage` attribute. Bazel passes the executable's exec path to the
+coverage runner in `CC_CODE_COVERAGE_SCRIPT`, which invokes it once the test has
+finished; if the attribute is absent, no C++ collection is attempted. The target
+may be any executable, including a `.exe`, `.bat` or `.cmd` on Windows.
 
-The default value of `GCOV_PREFIX_STRIP` is almost certainly incorrect and needs
-adjusting manually because the correct value depends on your setup.
-
-When the value is incorrect, no coverage data will be found.
-
-Example to set `GCOV_PREFIX_STRIP=10`
-```
-bazel coverage //foo:foo_test --test_env=GCOV_PREFIX_STRIP=10`
+```python
+my_test = rule(
+    implementation = _my_test_impl,
+    test = True,
+    attrs = {
+        "_collect_cc_coverage": attr.label(
+            default = Label("//lang/private/coverage/collect_lang_coverage"),
+            executable = True,
+            cfg = config.exec(exec_group = "test"),
+        ),
+    },
+)
 ```
 
 ### Java

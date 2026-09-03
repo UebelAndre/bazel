@@ -23,6 +23,10 @@ source "${CURRENT_DIR}/../integration_test_setup.sh" \
 source "${CURRENT_DIR}/coverage_helpers.sh" \
   || { echo "coverage_helpers.sh not found!" >&2; exit 1; }
 
+# This suite asserts on C++ coverage, which comes from Bazel's built-in
+# collector rather than a ruleset-provided one.
+use_builtin_cc_coverage
+
 function set_up_sh_test_coverage() {
   add_rules_shell "MODULE.bazel"
   add_rules_java "MODULE.bazel"

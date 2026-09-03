@@ -670,6 +670,27 @@ sh_test(
     ],
 )
 
+# The same suite with the built-in C++ coverage collector left on, which selects
+# the sh_binary coverage runner instead of the batch one. Neither this nor
+# :bazel_coverage_starlark_head_test is tagged no_windows, so between them they
+# cover both collect_coverage.bat (the default) and collect_coverage.sh (this
+# target) on Windows.
+# See https://github.com/bazelbuild/bazel/issues/5508
+sh_test(
+    name = "bazel_coverage_starlark_head_builtin_cc_test",
+    srcs = ["bazel_coverage_starlark_test.sh"],
+    args = [
+        # WORKSPACE file of the coverage output generator repo to test
+        "$(rlocationpath //tools/test/CoverageOutputGenerator/java/com/google/devtools/coverageoutputgenerator:coverage_empty_workspace)",
+        "--@bazel_tools//tools/test:incompatible_disable_builtin_cc_coverage=false",
+    ],
+    data = [
+        ":test-deps",
+        "//tools/test/CoverageOutputGenerator/java/com/google/devtools/coverageoutputgenerator:coverage_empty_workspace",
+        "//tools/test/CoverageOutputGenerator/java/com/google/devtools/coverageoutputgenerator:coverage_output_generator_repo",
+    ],
+)
+
 sh_test(
     name = "bazel_coverage_compatibility_test",
     srcs = ["bazel_coverage_compatibility_test.sh"],
