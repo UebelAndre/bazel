@@ -1337,10 +1337,8 @@ bool RemoveRelativeRecursively(const Path& root,
 }
 
 bool ArchiveUndeclaredOutputs(const UndeclaredOutputs& undecl) {
-  if (undecl.root.Get().empty() || undecl.zip.Get().empty()) {
-    // TEST_UNDECLARED_OUTPUTS_DIR was undefined, so there's nothing to archive,
-    // or TEST_UNDECLARED_OUTPUTS_ZIP was undefined as
-    // --nozip_undeclared_test_outputs was specified.
+  if (undecl.root.Get().empty()) {
+    // TEST_UNDECLARED_OUTPUTS_DIR was undefined, so there's nothing to archive.
     return true;
   }
 
@@ -1351,8 +1349,21 @@ bool ArchiveUndeclaredOutputs(const UndeclaredOutputs& undecl) {
   if (files.empty()) {
     return true;
   }
+
+  // The manifest describes the outputs whether or not they are zipped, just
+  // like test-setup.sh writes it independently of zipping.
+  if (!undecl.manifest.Get().empty() &&
+      !CreateUndeclaredOutputsManifest(files, undecl.manifest)) {
+    return false;
+  }
+
+  if (undecl.zip.Get().empty()) {
+    // TEST_UNDECLARED_OUTPUTS_ZIP was undefined because
+    // --nozip_undeclared_test_outputs was specified. Leave the outputs where
+    // they are: only the zipping path replaces them with the archive.
+    return true;
+  }
   return CreateZip(undecl.root, files, undecl.zip) &&
-         CreateUndeclaredOutputsManifest(files, undecl.manifest) &&
          RemoveRelativeRecursively(undecl.root, files);
 }
 
@@ -1522,6 +1533,45 @@ bool TeeImpl::MainFunc() const {
     }
   }
   return true;
+}
+
+// Runs the test attached to this process' console and returns its exit code.
+//
+// Unlike RunSubprocess, the test's stdin, stdout and stderr are the ones of
+// this process rather than a pipe to the "tee" thread, so the test can interact
+// with the user, e.g. under a debugger. This mirrors the `exec` that
+// test-setup.sh performs when BUILD_EXECROOT is set.
+int RunSubprocessInteractively(const Path& test_path,
+                               const std::wstring& args) {
+  // CreateProcessW's implicit cwd inheritance fails when cwd exceeds MAX_PATH:
+  // populate it so that `process.Create` may shorten it.
+  Path cwd;
+  if (!GetCwd(&cwd)) {
+    return 1;
+  }
+
+  // This overload of Create passes no handles to the subprocess, which makes it
+  // inherit this process' console, and lets Ctrl-C reach it.
+  bazel::windows::WaitableProcess process;
+  std::wstring werror;
+  if (!process.Create(test_path.Get(), args, nullptr, cwd.Get(), &werror)) {
+    LogError(__LINE__, werror);
+    return 1;
+  }
+
+  int wait_res = process.WaitFor(-1, nullptr, &werror);
+  if (wait_res != bazel::windows::WaitableProcess::kWaitSuccess) {
+    LogErrorWithValue(__LINE__, werror, wait_res);
+    return 1;
+  }
+
+  werror.clear();
+  int result = process.GetExitCode(&werror);
+  if (!werror.empty()) {
+    LogError(__LINE__, werror);
+    return 1;
+  }
+  return result;
 }
 
 int RunSubprocess(const Path& test_path, const std::wstring& args,
@@ -1963,6 +2013,18 @@ int TestWrapperMain(int argc, wchar_t** argv) {
     return 1;
   }
 
+  // When running under `bazel run`, as determined by the availability of an
+  // environment variable specific to it, hand the console to the test so that
+  // interactive debugging works. Also skip the post-processing steps below to
+  // avoid unexpected latency when the user finishes debugging.
+  std::wstring build_execroot;
+  if (!GetEnv(L"BUILD_EXECROOT", &build_execroot)) {
+    return 1;
+  }
+  if (!build_execroot.empty()) {
+    return RunSubprocessInteractively(executable, args);
+  }
+
   Duration test_duration;
   int result = RunSubprocess(executable, args, test_outerr, &test_duration);
   Path annotations_pb;
@@ -2033,6 +2095,23 @@ std::string TestOnly_GetMimeType(const std::string& filename) {
 bool TestOnly_CreateUndeclaredOutputsManifest(
     const std::vector<FileInfo>& files, std::string* result) {
   return CreateUndeclaredOutputsManifestContent(files, result);
+}
+
+bool TestOnly_ArchiveUndeclaredOutputs(const std::wstring& abs_root,
+                                       const std::wstring& abs_zip,
+                                       const std::wstring& abs_manifest) {
+  UndeclaredOutputs undecl;
+  if (!blaze_util::IsAbsolute(abs_root) || !undecl.root.Set(abs_root) ||
+      !blaze_util::IsAbsolute(abs_manifest) ||
+      !undecl.manifest.Set(abs_manifest)) {
+    return false;
+  }
+  // An empty zip path means --nozip_undeclared_test_outputs.
+  if (!abs_zip.empty() &&
+      (!blaze_util::IsAbsolute(abs_zip) || !undecl.zip.Set(abs_zip))) {
+    return false;
+  }
+  return ArchiveUndeclaredOutputs(undecl);
 }
 
 bool TestOnly_CreateUndeclaredOutputsAnnotations(

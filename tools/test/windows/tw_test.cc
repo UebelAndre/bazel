@@ -37,6 +37,7 @@ namespace {
 using bazel::tools::test_wrapper::FileInfo;
 using bazel::tools::test_wrapper::IFStream;
 using bazel::tools::test_wrapper::ZipEntryPaths;
+using bazel::tools::test_wrapper::testing::TestOnly_ArchiveUndeclaredOutputs;
 using bazel::tools::test_wrapper::testing::TestOnly_AsMixedPath;
 using bazel::tools::test_wrapper::testing::TestOnly_CdataEncode;
 using bazel::tools::test_wrapper::testing::TestOnly_CreateIFStream;
@@ -406,6 +407,36 @@ TEST_F(TestWrapperWindowsTest, TestUndeclaredOutputsManifest) {
   ASSERT_EQ(content, std::string("foo/sub/file1.ico\t0\timage/x-icon\n"
                                  "foo/sub/file2.bmp\t5\timage/bmp\n"
                                  "foo/file2\t6\tapplication/octet-stream\n"));
+}
+
+TEST_F(TestWrapperWindowsTest, TestArchiveUndeclaredOutputsWithoutZipping) {
+  std::wstring tmpdir;
+  GET_TEST_TMPDIR(&tmpdir);
+
+  std::wstring root = tmpdir + L"\\tmp" + WLINE;
+  std::wstring outs = root + L"\\outs";
+  std::wstring output = outs + L"\\file.ico";
+  EXPECT_TRUE(CreateDirectoryW(root.c_str(), nullptr));
+  EXPECT_TRUE(CreateDirectoryW(outs.c_str(), nullptr));
+  EXPECT_TRUE(blaze_util::CreateDummyFile(output, "hello"));
+
+  // An empty zip path means --nozip_undeclared_test_outputs was specified. The
+  // manifest is written all the same, as test-setup.sh does on other platforms.
+  std::wstring manifest = root + L"\\MANIFEST";
+  ASSERT_TRUE(TestOnly_ArchiveUndeclaredOutputs(outs, L"", manifest));
+
+  HANDLE h = FopenRead(manifest);
+  ASSERT_NE(h, INVALID_HANDLE_VALUE);
+  char content[100];
+  DWORD read;
+  bool success = ReadFile(h, content, 100, &read, nullptr) != FALSE;
+  CloseHandle(h);
+  EXPECT_TRUE(success);
+  EXPECT_EQ(std::string(content, read),
+            std::string("file.ico\t5\timage/x-icon\n"));
+
+  // Only the zipping path replaces the outputs with the archive.
+  EXPECT_NE(GetFileAttributesW(output.c_str()), INVALID_FILE_ATTRIBUTES);
 }
 
 TEST_F(TestWrapperWindowsTest, TestCreateUndeclaredOutputsAnnotations) {

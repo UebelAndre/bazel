@@ -183,6 +183,12 @@ std::string TestOnly_GetMimeType(const std::string& filename);
 bool TestOnly_CreateUndeclaredOutputsManifest(
     const std::vector<FileInfo>& files, std::string* result);
 
+// Writes the Undeclared Outputs manifest for the files under `abs_root` and,
+// unless `abs_zip` is empty, archives those files into that zip.
+bool TestOnly_ArchiveUndeclaredOutputs(const std::wstring& abs_root,
+                                       const std::wstring& abs_zip,
+                                       const std::wstring& abs_manifest);
+
 bool TestOnly_CreateUndeclaredOutputsAnnotations(
     const std::wstring& abs_root, const std::wstring& abs_output);
 
